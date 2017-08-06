@@ -1,0 +1,39 @@
+bigCorpus <- plyrChunks(bigCorpus, 8000)
+cl <- makeCluster(detectCores() - 1)
+
+bigCorpus <- chunkApply('quanteda::tokenize(x, "sentence")')
+
+bigCorpus <- chunkApply('iconv(x, "latin1", "ASCII", sub="")')
+
+bigCorpus <- chunkApply('gsub("-", " ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("[[:punct:]]", "", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("[0-9]", "ALLDIGITS ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("ALLDIGITS ALLDIGITS ALLDIGITS ", "ALLDIGITS ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("ALLDIGITS ALLDIGITS  ", "ALLDIGITS ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub(" +", " ", x)')
+
+bigCorpus <- chunkApply('gsub("ALLDIGITS ALLDIGITS ", "ALLDIGITS ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("^", "bos ", x, perl = T)')
+
+bigCorpus <- chunkApply('gsub("$", " eos", x, perl = T)')
+
+#bigCorpus <- chunkApply('gsub("(\\b\\w+\\b)\\W+\\1", "-", x, perl = T)')
+
+stopCluster(cl)
+
+
+bigCorpus <- bigCorpus %>% unlist
+
+source("badwords.R")
+
+cleanCorpus <- gsub(paste("\\b", i, "\\b", sep = ""), "EXPLETIVE", bigCorpus, perl = T)
+
+for(i in badwords){
+        cleanCorpus <- gsub(paste("\\b", i, "\\b", sep = ""), "EXPLETIVE", cleanCorpus, perl = T)
+}
