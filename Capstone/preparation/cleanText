@@ -1,5 +1,68 @@
+############### Functions ################
+
+
+#breaks up a large character vector d into n-sized chunks
+#thank you stackoverflow user celacanto for the following function
+#https://stackoverflow.com/questions/31062486/quickly-split-a-large-vector-into-chunks-in-r
+plyrChunks <- function(d, n){
+        is <- seq(from = 1, to = length(d), by = n)
+        if(tail(is, 1) != length(d)) {
+                is <- c(is, length(d)) 
+        } 
+        chunks <- llply(head(seq_along(is), -1), 
+                        function(i){
+                                start <-  is[i];
+                                end <- is[i+1]-1;
+                                d[start:end]})
+        lc <- length(chunks)
+        td <- tail(d, 1)
+        chunks[[lc]] <- c(chunks[[lc]], td)
+        return(chunks)
+}
+
+#enacts a command in parallel over a large list of text data
+chunkApply <- function(command){
+        parLapply(cl, bigCorpus, function(x){
+                lapply(x, function(x){
+                        eval(parse(text = command))
+                })
+        })
+}
+
+############### Execution ################
+
+
+#The corpus chunks are very large, and would therefore be really slow to do everything serially
+#So the solution is to:
+#1. break the corpus into identically sized chunks in a list using plyrChunks
+#2. start a multi-core cluster
+#3. using doParallel::parLapply, paralellize a command over the chunks
+#       3.a: breaking into sentences
+#       3.b: removing any improperly coded characters
+#       3.c: replacing dashes with spaces
+#       3.d: removing punctuation
+#       3.e: replacing all numbers with a single value
+#               3.e.1: reducing the number of that value
+#       3.f: remove trailing spaces
+#       3.g: insert beginning of sentence tag
+#       3.h: insert end of sentence tag
+#4. load our swear dictionary
+#5. remove our swears using a loop
+#       #5.a: I'm using for() instead of lapply()
+#               because for works in the global environment (the same scope as bigCorpus),
+#               while lapply spawns its own.
+#               And assinging an object in the parent environment is more trouble than it's worth
+#       #5.b: I'm assinging a stray command first,
+#               because if that new copy wasn't created,
+#               every iteration would rewrite the previous one.
+#               Leaving only the last word in the dictionary,
+#               as opposed to having them build on each other.
+#6. stop the cluster
+#7. recombine
+
 bigCorpus <- plyrChunks(bigCorpus, 8000)
 cl <- makeCluster(detectCores() - 1)
+
 
 bigCorpus <- chunkApply('quanteda::tokenize(x, "sentence")')
 
@@ -25,15 +88,22 @@ bigCorpus <- chunkApply('gsub("$", " eos", x, perl = T)')
 
 #bigCorpus <- chunkApply('gsub("(\\b\\w+\\b)\\W+\\1", "-", x, perl = T)')
 
-stopCluster(cl)
-
-
-bigCorpus <- bigCorpus %>% unlist
-
 source("badwords.R")
 
-cleanCorpus <- gsub(paste("\\b", i, "\\b", sep = ""), "EXPLETIVE", bigCorpus, perl = T)
+cleanCorpus <- chunkApply('gsub(
+                          paste("\\b", badwords[1], "\\b", sep = ""), 
+                          "EXPLETIVE", 
+                          bigCorpus, 
+                          perl = T)')
 
-for(i in badwords){
-        cleanCorpus <- gsub(paste("\\b", i, "\\b", sep = ""), "EXPLETIVE", cleanCorpus, perl = T)
+for(i in badwords[2:length(badwords)]){
+        cleanCorpus <- chunkApply('gsub(
+                                  paste("\\b", i, "\\b", sep = ""), 
+                                  "EXPLETIVE", 
+                                  cleanCorpus, 
+                                  perl = T)')
 }
+
+stopCluster(cl)
+
+bigCorpus <- bigCorpus %>% unlist
